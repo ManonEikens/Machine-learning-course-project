@@ -1,0 +1,88 @@
+---
+title: "Practical Machine Learning - Course Project"
+author: "M. Eikens"
+date: "31 maart 2016"
+output: html_document
+---
+# Introduction
+In this project, data is used from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. The goal of this project is to predict the manner in which they did the exercise. This is registrated in the variable 'classe' in the trainingset.
+More information is available from the website here: http://groupware.les.inf.puc-rio.br/har.
+
+# Packages
+The following packages will be loaded and used for this project:
+```{r}
+library(caret)
+library(randomForest)
+library(gbm)
+library(plyr)
+```
+
+# Getting and cleaning data
+First I download and load the data into R.
+```{r}
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", destfile = "~/Desktop/training.csv", method = "curl")
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", destfile = "~/Desktop/testing.csv", method = "curl")
+training = read.csv("~/Desktop/training.csv")
+testing = read.csv("~/Desktop/testing.csv")
+```
+
+First I take a look at the data and check if the 2 files have the same column names.
+```{r, echo=FALSE}
+dim(training)
+dim(testing)
+all.equal(colnames(training),colnames(testing))
+str(training)
+```
+There is 1 column with a different name. The last column in the trainingset is "classe" and in the testingset the last column is "problem_id". Since I want to predict the classe, it's not a problem.
+
+The first 7 colums have no predictive value and can be dropped.
+Next there are a lot of variables with only NA's, those variables I also want to drop.
+```{r}
+training <- training[,8:length(colnames(training))]
+testing <- testing[,8:length(colnames(testing))]
+todrop <- colnames(training[,colSums(is.na(training))>0])
+training <- training[,!(names(training) %in% todrop)]
+testing <- testing[,!(names(testing) %in% todrop)]
+```
+
+# Model building
+First I want to check if there are 'near zero covariates' (covariates without predictive value) in the data and remove those.
+```{r}
+nsv <- nearZeroVar(training, saveMetrics = TRUE)
+nsv
+todrop2 <- rownames(nsv[nsv$nzv==TRUE,])
+training <- training[,!(names(training) %in% todrop2)]
+testing <- testing[,!(names(testing) %in% todrop2)]
+```
+
+The training dataset is quite large and before using the very small testset, I would like to try out different models, so I can choose the best fitting model. To be able to do that I have to create a new training and test set, based on the current trainingset. The original testset will only be used to predict based on the final model (crossvalidation). First I set the seed to make the project reproducible.
+```{r}
+set.seed(12345)
+inTrain <- createDataPartition(training$classe, p=0.6,list=FALSE)
+training1 <- training[inTrain,]
+testing1 <- training[-inTrain,]
+```
+
+In this project I will compare 2 models: prediction with random forest "rf" and prediction with generalized boosted regression "gbm". In the next chunk of code I fit the 2 models and predict the 'classe' on the extra testingset (testing1) for both models. Then I check the accuracy of both models.
+```{r}
+modRF <- train(classe ~ ., method="rf", data=training1, prox=TRUE)
+modGBM <- train(classe ~ ., method="gbm", data=training1, verbose=FALSE)
+predRF <- predict(modRF, testing1)
+predGBM <- predict(modGBM, testing1)
+accRF <- confusionMatrix(testing1$classe, predRF)$overall[1]
+accRF
+accGBM <- confusionMatrix(testing1$classe, predGBM)$overall[1]
+accGBM
+```
+
+# Conclusion
+The accuracy of the RF-model (0.9926) is better than the GBM-model (0.9621).
+So my best model is the RF-model.
+The out-of-sample error of the RF-model is 1 - 0.9926 = 0.0074
+
+Finally the prediction of the provided 20 testcases from the original testset with the RF-model.
+```{r}
+predfinal <- predict(modRF, testing)
+predfinal
+```
+
